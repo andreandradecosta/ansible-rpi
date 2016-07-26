@@ -1,0 +1,80 @@
+---
+- hosts: home
+  gather_facts: yes
+  become: yes
+  vars:
+    backup_files: yes
+    root_dir: '/'
+    sshd_config: '{{root_dir}}/etc/ssh/sshd_config'
+    modules: '{{root_dir}}/etc/modules'
+    watchdog_conf: '{{root_dir}}/etc/watchdog.conf'
+    fail2ban_conf_dir: '{{root_dir}}/etc/fail2ban'
+    apt_conf_dir: '{{root_dir}}/etc/apt/apt.conf.d'
+    ddclient_conf: '{{root_dir}}/etc/ddclient.conf'
+    packages_to_install: [git, htop, tig, nmap, fail2ban, curl, wget, watchdog, tree, unattended-upgrades, ddclient]
+  vars_prompt:
+    - name: "noip_username"
+      prompt: "noip_username"
+      private: no
+    - name: "noip_password"
+      prompt: "noip_password"
+      private: no
+    - name: "noip_domain"
+      prompt: "noip_domain"
+      private: no
+  tasks:
+    - name: install packages
+      apt: name={{item}} state=present update_cache=yes
+      with_items: "{{packages_to_install}}"
+  
+    - name: remove pi group
+      group: name=pi state=absent
+    - name: remove pi user
+      user: name=pi state=absent remove=yes
+      
+    - name: ssh - PermitRootLogin
+      lineinfile: dest={{sshd_config}} regexp='^PermitRootLogin' line='PermitRootLogin no' backup={{backup_files}}
+      notify:
+        - validate_ssh
+    - name: ssh - PasswordAuthentication
+      lineinfile: dest={{sshd_config}} regexp='^#PasswordAuthentication yes' line='PasswordAuthentication no' backrefs=yes backup={{backup_files}}
+      notify:
+        - validate_ssh
+    - name: ssh - ChallengeResponseAuthentication
+      lineinfile: dest={{sshd_config}} line='ChallengeResponseAuthentication no' backup={{backup_files}}
+      notify:
+        - validate_ssh
+    - name: ssh - GatewayPorts    
+      lineinfile: dest={{sshd_config}} line='GatewayPorts yes' backup={{backup_files}}
+      notify:
+        - validate_ssh 
+        
+    - name: watchdog
+      command: 'modprobe bcm2708_wdog'
+    - name: watchdog - modules
+      lineinfile: dest={{modules}} line='bcm2708_wdog' backup={{backup_files}}
+    - name: watchdog - max-load
+      replace: dest={{watchdog_conf}} regexp='#max-load-1\W' replace='max-load-1' backup={{backup_files}}
+    - name: watchdog - watchdog-device
+      replace: dest={{watchdog_conf}} regexp='^#watchdog-device' replace='watchdog-device' backup={{backup_files}}
+    - name: watchdog - service
+      service: name=watchdog enabled=yes
+      
+    - name: fail2ban - jail.local
+      copy: src=jail.local dest={{fail2ban_conf_dir}}/jail.local
+    - name: fail2ban - iptables
+      copy: src=iptables-allports.conf dest={{fail2ban_conf_dir}}/action.d/iptables-allports.conf backup={{backup_files}}
+
+    - name: unattended - main
+      copy: src=50unattended-upgrades dest={{apt_conf_dir}}/50unattended-upgrades backup={{backup_files}}
+    - name: unattended - service
+      command: 'update-rc.d unattended-upgrades defaults'
+      
+    - name: ddclient - conf
+      template: src=ddclient.j2 dest={{ddclient_conf}} backup={{backup_files}}
+    - name: ddclient - service
+      service: name=ddclient enabled=yes
+    
+  handlers:
+    - name: validate_ssh
+      command: 'sshd -t -f {{sshd_config}}'
