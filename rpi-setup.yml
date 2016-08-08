@@ -1,5 +1,5 @@
 ---
-- hosts: home
+- hosts: rpi
   gather_facts: yes
   become: yes
   vars:
@@ -27,11 +27,6 @@
       apt: name={{item}} state=present update_cache=yes
       with_items: "{{packages_to_install}}"
   
-    - name: remove pi group
-      group: name=pi state=absent
-    - name: remove pi user
-      user: name=pi state=absent remove=yes
-      
     - name: ssh - PermitRootLogin
       lineinfile: dest={{sshd_config}} regexp='^PermitRootLogin' line='PermitRootLogin no' backup={{backup_files}}
       notify:
@@ -50,7 +45,7 @@
         - validate_ssh 
         
     - name: watchdog
-      command: 'modprobe bcm2708_wdog'
+      command: 'modprobe bcm2835_wdt'
     - name: watchdog - modules
       lineinfile: dest={{modules}} line='bcm2708_wdog' backup={{backup_files}}
     - name: watchdog - max-load
